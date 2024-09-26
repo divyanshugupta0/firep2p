@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P File Sharing</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        #fileInput, #shareLink {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        #shareButton, #downloadButton {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        #shareButton:hover, #downloadButton:hover {
+            background-color: #45a049;
+        }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>P2P File Sharing</h1>
+    <input type="file" id="fileInput">
+    <button id="shareButton">Share File</button>
+    <input type="text" id="shareLink" placeholder="Paste share link here">
+    <button id="downloadButton">Download File</button>
+    <div id="status"></div>
+
+    <script>
+        const peer = new Peer();
+        let peerId;
+
+        function setStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        peer.on('open', (id) => {
+            peerId = id;
+            setStatus('Ready to share or receive files');
+        });
+
+        peer.on('error', (error) => {
+            console.error('PeerJS error:', error);
+            setStatus('Error: ' + error);
+        });
+
+        document.getElementById('shareButton').addEventListener('click', () => {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                setStatus('Please select a file');
+                return;
+            }
+
+            const shareLink = `${window.location.origin}${window.location.pathname}?id=${peerId}&filename=${encodeURIComponent(file.name)}`;
+            document.getElementById('shareLink').value = shareLink;
+            setStatus('Share link generated. Waiting for receiver...');
+
+            peer.on('connection', (conn) => {
+                conn.on('open', () => {
+                    setStatus('Connection established. Sending file...');
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        conn.send({
+                            filename: file.name,
+                            data: e.target.result
+                        });
+                        setStatus('File sent successfully');
+                    };
+                    reader.readAsArrayBuffer(file);
+                });
+            });
+        });
+
+        document.getElementById('downloadButton').addEventListener('click', () => {
+            const shareLink = document.getElementById('shareLink').value;
+            const url = new URL(shareLink);
+            const id = url.searchParams.get('id');
+            const filename = url.searchParams.get('filename');
+
+            if (!id || !filename) {
+                setStatus('Invalid share link');
+                return;
+            }
+
+            setStatus('Connecting to peer...');
+            const conn = peer.connect(id);
+            conn.on('open', () => {
+                setStatus('Connected. Waiting for file...');
+                conn.on('data', (data) => {
+                    const blob = new Blob([data.data]);
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = data.filename || filename;
+                    a.click();
+                    setStatus('File downloaded successfully');
+                });
+            });
+        });
+
+        // Check if we're receiving a file on page load
+        window.addEventListener('load', () => {
+            const url = new URL(window.location.href);
+            const id = url.searchParams.get('id');
+            const filename = url.searchParams.get('filename');
+            if (id && filename) {
+                document.getElementById('shareLink').value = window.location.href;
+                setStatus('Share link detected. Click "Download File" to receive the file.');
+            }
+        });
+    </script>
+</body>
+</html>
